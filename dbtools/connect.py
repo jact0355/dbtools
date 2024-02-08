@@ -6,37 +6,36 @@ import cx_Oracle as cx
 import psycopg2 as pg
 import paramiko as pm
 
-cred_path = os.environ.get('CRED_KEY')
+cred_path = Path(os.environ.get('CRED_KEY', '.')) 
 
 # ==================================================================================================
-def connect_oracle(database, schema, **kwargs):
+def connect_oracle(database, schema, encoding='UTF-8', **kwargs):
     # Relative path to get credentials
-    with open(Path(cred_path, f"{database}.json")) as f:
+    with open(cred_path / 'oracle' / f"{database}.json") as f:
         credentials = json.load(f)
         
     # Get credentials
     schema_cred = credentials[schema]
-    host, port, service_name = schema_cred['host'], schema_cred['port'], schema_cred['service_name']
-    user, password = schema_cred['user'], schema_cred['password']
-
+    host, port, service_name, user, password = (schema_cred[key] for key in ('host', 'port', 'service_name', 'user', 'password'))
+    
     # Create connection
     dsn = cx.makedsn(host, port, service_name=service_name)
-    connection = cx.connect(user=user, password=password, dsn=dsn, **kwargs)
+    connection = cx.connect(user=user, password=password, dsn=dsn, encoding=encoding, **kwargs)
     print(f'Connected to ORACLE {schema}@{database}')
     return connection
 
 # ==================================================================================================
 def connect_postgre(database, schema=None, **kwargs):
     # Relative path to get credentials
-    with open(Path(cred_path, f"{database}.json")) as f:
+    with open(cred_path / 'postgre' / f"{database}.json") as f:
         credentials = json.load(f)
     
     # Get credentials
     database_cred = credentials[database]
-    host, user, password = database_cred['host'], database_cred['user'], database_cred['password']
+    database, host, user, password = (database_cred[key] for key in ('database', 'host', 'user', 'password'))
     
     # If schema is assigned
-    options = f"-c search_path={schema}" if schema is not None else None
+    options = f"-c search_path={schema}" if schema else ''
 
     # Create connection
     connection = pg.connect(host=host, database=database, user=user, password=password, options=options, **kwargs)
@@ -46,21 +45,19 @@ def connect_postgre(database, schema=None, **kwargs):
 # ==================================================================================================
 def connect_server(server):
     # Relative path to get credentials
-    with open(Path(cred_path, "server.json")) as f:
+    with open(cred_path / 'server' / "server.json") as f:
         credentials = json.load(f)
     
     # Get credentials
     server_cred = credentials[server]
-    hostname, port, username = server_cred['hostname'], server_cred['port'], server_cred['username']
-    if server == 'spotify':    # Special condition for spotify server
-        p_key = pm.RSAKey.from_private_key_file(Path(cred_path, f'{server}.pem'), password=server_cred['passphrase'])
-    else:
-        key_filename = Path(cred_path, f'{server}.pem')
+    hostname, port, username = (server_cred[key] for key in ('hostname', 'port', 'username'))
+    key_filename = cred_path / 'server' / f"{server}.pem"
     
     # Connect to virtual machine
     client = pm.SSHClient()
     client.set_missing_host_key_policy(pm.AutoAddPolicy())
     if server == 'spotify':    # Special condition for spotify server
+        p_key = pm.RSAKey.from_private_key_file(str(key_filename), password=server_cred['passphrase'])
         client.connect(hostname=hostname, port=port, username=username, pkey=p_key)
     else:
         client.connect(hostname=hostname, port=port, username=username, key_filename=str(key_filename))
